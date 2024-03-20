@@ -131,7 +131,7 @@ check <- function(a, max_iter = 500) {
   x0 <- x0 + one_step(a, x0, b, t0)
   hatx <- sqrt(t0) * x0
 
-  while (myNorm(hatx, a) > 3 / 4 && iter < max_iter) {
+  while (myNorm(hatx, a) > 1 && iter < max_iter) {
     t0 <- t0 * (1 - 1 / (4 * sqrt(n) + 1))
     x0 <- x0 + one_step(a, x0, b, t0)
 
@@ -144,7 +144,7 @@ check <- function(a, max_iter = 500) {
 #########################################
 one_step <- function(a, x0, b = 0, t = 1) { # a matrix, x0 vector
   rhs <- 1 / x0 - t * a %*% x0 - t * b
-  lhs <- diag(x0^(-2)) + a
+  lhs <- diag(x0^(-2)) + t * a
   y <- backsolve(lhs, rhs)
   return(as.vector(y))
 }
@@ -168,30 +168,48 @@ solve_for_D <- function(RS) {
   return(D)
 }
 #########################################
-pcSLOPE <- function(lambda, S, tol = 1e-6, max_iter = 100) {
+# The funciton that coordinate descent is optimizing:
+pcSLOPE_target_2x2 <- function(R, D, S, lambda) {
+  my_trace <- function(M) {
+    sum(diag(M))
+  }
+  r <- R[1, 2]
+  log(1 - r * r) + 2 * log(det(D)) - my_trace(R %*% D %*% S %*% D) - 2 * lambda * abs(r)
+}
+#########################################
+pcSLOPE_2x2 <- function(lambda, s, r, tol = 1e-6, max_iter = 100) {
+  diagS <- rep(1, 2)
+  S <- matrix(c(1, s, s, 1), nrow = 2)
+  R <- matrix(c(1, r, r, 1), nrow = 2)
+
+  pcSLOPE(lambda, S, R, tol, max_iter)
+}
+pcSLOPE <- function(lambda, S, R = NULL, tol = 1e-6, max_iter = 100) {
   diagS <- diag(S)
   S <- cov2cor(S)
   p <- ncol(S)
   iter <- 0
-  INITIAL <- gslope_standardized_new(S, lambda)
-  R <- INITIAL$precision_matrix
-  Ri <- INITIAL$cov_matrix
+  Ri <- NULL
+  if (is.null(R)) {
+    INITIAL <- gslope_standardized_new(S, lambda)
+    R <- INITIAL$precision_matrix
+    Ri <- INITIAL$cov_matrix
+  }
   error <- 1
   D <- diag(p)
 
   while (error > tol && iter < max_iter) {
     Rold <- R
     Riold <- Ri
-    D <- solve_for_D(Rold * S)
-    inputMatrix <- D %*% S %*% D - D * D + diag(diag(Riold))
-    # mineigen = min(eigen(inputMatrix)$values)
-    #   print(mineigen)
-    # if(mineigen<0 && -mineigen>=lambda){
-    #  print("ERROR2")
-    #  return(FALSE)
-    # }
+    D_new <- solve_for_D(Rold * S)
+    if (pcSLOPE_target_2x2(Rold, D_new, S, lambda) < -100) {
+      stop("The matrix overflow. It used to make a singular D matrix. Investigate!")
+    }
+    D <- D_new
+    inputMatrix <- D %*% S %*% D
     GSLOPE <- gslope_standardized_new(inputMatrix, lambda)
     R <- GSLOPE$precision_matrix
+    diag(R) <- rep(1, p) # TODO: hacking; this should be true for output of gslope_standardized_new()
     Ri <- GSLOPE$cov_matrix
 
     error <- max(abs(R - Rold))
@@ -200,19 +218,15 @@ pcSLOPE <- function(lambda, S, tol = 1e-6, max_iter = 100) {
   }
   D <- D %*% diag(diagS^(-1 / 2))
   K <- D %*% R %*% D
-  myList <- list(R, Ri, D, K, iter)
+  myList <- list(R, Ri, D, K, iter, error)
 
-  #  print(iter)
-
-  names(myList) <- c("R", "Ri", "D", "K", "iter")
+  names(myList) <- c("R", "Ri", "D", "K", "iter", "error")
   return(myList)
 }
 
 ########### SIMULATIONS###########
-########### SIMULATIONS###########
-########### SIMULATIONS###########
 
-p <- 10
+p <- 2
 n <- 100
 
 val <- 1 / 2
@@ -235,4 +249,69 @@ S <- (t(Z) %*% Z) / n
 
 
 lambda2 <- seq(p * (p - 1) / 2, 1) / (p * (p - 1) / 2)
-pcSLOPE(lambda2 * 0.5, S)
+
+
+N_l <- 20
+l_seq <- seq(0, 3 / 2, length.out = N_l + 2)[2:(N_l + 1)]
+N_s <- 20
+s_seq <- seq(-1, 1, length.out = N_s + 2)[2:(N_s + 1)]
+
+args_grid <- tidyr::crossing(lambda = l_seq, s = s_seq)
+
+single_r_result <- function(r, lambda, s) {
+  pcSLOPE_res <- pcSLOPE_2x2(lambda, s, r)
+  list(r_res = pcSLOPE_res$R[1, 2], n_iter = pcSLOPE_res$iter, error = pcSLOPE_res$error)
+}
+
+r_gap <- function(lambda, s) {
+  N_r <- 20
+  r_seq <- seq(-1, 1, length.out = N_r + 2)[2:(N_r + 1)]
+
+  multiple_r_result <- sapply(r_seq, function(r) {
+    single_r_result(r, lambda, s)$r_res
+  })
+
+  (max(multiple_r_result) - min(multiple_r_result))
+}
+
+start_time <- Sys.time()
+result <- purrr::pmap_dbl(args_grid, r_gap) # 0.5 minut
+max(result)
+end_time <- Sys.time()
+end_time - start_time
+
+args_grid[which(result > 0.5), ]
+
+lambda <- 1
+s <- -0.905
+N_r <- 1000
+
+r_seq <- seq(-0.1, 0.9, length.out = N_r + 2)[2:(N_r + 1)]
+
+multiple_r_result <- sapply(r_seq, function(r) {
+  single_r_result(r, lambda, s)$r_res
+})
+multiple_iter_result <- sapply(r_seq, function(r) {
+  single_r_result(r, lambda, s)$n_iter
+})
+multiple_error_result <- sapply(r_seq, function(r) {
+  single_r_result(r, lambda, s)$error
+})
+
+plot(r_seq, multiple_r_result)
+plot(r_seq, multiple_iter_result,
+  type = "l",
+  main = "lambda = 1, s = -0.905",
+  ylab = "iterations to converge",
+  xlab = "initial r"
+)
+
+result_0 <- pcSLOPE(1, s, r = 0.7)
+pcSLOPE_target_2x2(result_0$R, result_0$D, matrix(c(1, s, s, 1), ncol = 2), lambda)
+result_1 <- pcSLOPE(1, s, r = 0.5)
+pcSLOPE_target_2x2(result_1$R, result_1$D, matrix(c(1, s, s, 1), ncol = 2), lambda)
+
+pcSLOPE_target_from_r <- sapply(r_seq, function(r) {
+  pcSLOPE_target_2x2(matrix(c(1, r, r, 1), ncol = 2), diag(2) / sqrt(1 + s * r), matrix(c(1, s, s, 1), ncol = 2), lambda)
+})
+plot(r_seq, pcSLOPE_target_from_r, type = "l")
