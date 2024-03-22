@@ -110,7 +110,7 @@ plot_points <- function(data_points, non_zero_value, title, my_colors = c("black
 plot_divergence <- function(lambdas, value_LASSO, value_SLOPE, y_axis_name){
   data <- data.frame(x = rep(lambdas, 2),
                      y = c(value_LASSO, value_SLOPE),
-                     group = rep(c("LASSO", "SLOPE"), each = length(lambdas)))
+                     group = rep(c("PCLASSO", "PCSLOPE"), each = length(lambdas)))
   
   max_y <- max(max(value_LASSO), max(value_SLOPE))
   

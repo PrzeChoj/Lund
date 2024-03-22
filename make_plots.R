@@ -54,8 +54,8 @@ data_cluster <- get_simulations(cluster_graph, N, lambda_min, lambda_max, SLOPE_
 
 jitter_width <- 0.01
 dot_size <- 2
-plt_LASSO <- plot_points(data_cluster$points_df_LASSO, non_zero_partial_corelation, "LASSO", c("black", "red"), jitter_width = jitter_width, size = dot_size)
-plt_SLOPE <- plot_points(data_cluster$points_df_SLOPE, non_zero_partial_corelation, "SLOPE", c("blue", "purple"), jitter_width = jitter_width, size = dot_size)
+plt_LASSO <- plot_points(data_cluster$points_df_LASSO, non_zero_partial_corelation, "PCLASSO", c("black", "red"), jitter_width = jitter_width, size = dot_size)
+plt_SLOPE <- plot_points(data_cluster$points_df_SLOPE, non_zero_partial_corelation, "PCSLOPE", c("blue", "purple"), jitter_width = jitter_width, size = dot_size)
 plt_KL_loss <- plot_divergence(data_cluster$lambdas, data_cluster$KL_loss_LASSO, data_cluster$KL_loss_SLOPE, "KL loss")
 plt_frob_norm <- plot_divergence(data_cluster$lambdas, data_cluster$frob_norm_LASSO, data_cluster$frob_norm_SLOPE, "Frob norm")
 
